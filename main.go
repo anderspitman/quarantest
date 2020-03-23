@@ -63,54 +63,7 @@ func main() {
                         fmt.Println(webhook.HeadCommit.Id)
                         fmt.Println(webhook.Repository.Url)
 
-                        srcDir := path.Join(commitDir, webhook.HeadCommit.Id, "src")
-
-                        cloneCommand := exec.Command("git", "clone", webhook.Repository.Url, srcDir)
-                        _, err = cloneCommand.Output()
-                        if err != nil {
-                                fmt.Println(err)
-                                w.WriteHeader(400)
-                                fmt.Fprintf(w, "%s", err)
-                                return
-                        }
-
-
-                        fmt.Println(webhook.Ref)
-                        args := []string{"-C", srcDir, "checkout", webhook.HeadCommit.Id}
-                        fmt.Println(args)
-                        checkoutCommand := exec.Command("git", args...)
-                        _, err = checkoutCommand.Output()
-                        if err != nil {
-                                fmt.Println(err.(*exec.ExitError).Stderr)
-                                w.WriteHeader(400)
-                                return
-                        }
-
-                        buildDir := path.Join(commitDir, webhook.HeadCommit.Id, "build")
-                        mkdirCommand := exec.Command("mkdir", "-p", buildDir)
-                        _, err = mkdirCommand.Output()
-                        if err != nil {
-                                fmt.Println(err.(*exec.ExitError).Stderr)
-                                w.WriteHeader(400)
-                                return
-                        }
-
-
-                        srcMount := fmt.Sprintf("type=bind,source=%s,target=/src", srcDir)
-                        buildMount := fmt.Sprintf("type=bind,source=%s,target=/build", buildDir)
-                        args = []string{"run", "--rm", "-i", "--mount", srcMount, "--mount", buildMount, "bam.iobio", "/src/build.sh"}
-                        fmt.Println(args)
-                        buildCommand := exec.Command("docker", args...)
-                        //buildCommand.Dir = outDir
-                        _, err = buildCommand.Output()
-                        if err != nil {
-                                fmt.Println(err)
-                                fmt.Println(err.(*exec.ExitError).Stderr)
-                                w.WriteHeader(400)
-                                return
-                        }
-
-                        w.Write([]byte("Webhook"))
+                        go doBuild(w, r, commitDir, webhook)
                 } else {
 
                         hostParts := strings.Split(r.Host, ".")
@@ -157,4 +110,56 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+
+func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *GithubWebhook) {
+        srcDir := path.Join(commitDir, webhook.HeadCommit.Id, "src")
+
+        cloneCommand := exec.Command("git", "clone", webhook.Repository.Url, srcDir)
+        _, err := cloneCommand.Output()
+        if err != nil {
+                fmt.Println(err)
+                w.WriteHeader(400)
+                fmt.Fprintf(w, "%s", err)
+                return
+        }
+
+
+        fmt.Println(webhook.Ref)
+        args := []string{"-C", srcDir, "checkout", webhook.HeadCommit.Id}
+        fmt.Println(args)
+        checkoutCommand := exec.Command("git", args...)
+        _, err = checkoutCommand.Output()
+        if err != nil {
+                fmt.Println(err.(*exec.ExitError).Stderr)
+                w.WriteHeader(400)
+                return
+        }
+
+        buildDir := path.Join(commitDir, webhook.HeadCommit.Id, "build")
+        mkdirCommand := exec.Command("mkdir", "-p", buildDir)
+        _, err = mkdirCommand.Output()
+        if err != nil {
+                fmt.Println(err.(*exec.ExitError).Stderr)
+                w.WriteHeader(400)
+                return
+        }
+
+
+        srcMount := fmt.Sprintf("type=bind,source=%s,target=/src", srcDir)
+        buildMount := fmt.Sprintf("type=bind,source=%s,target=/build", buildDir)
+        args = []string{"run", "--rm", "-i", "--mount", srcMount, "--mount", buildMount, "bam.iobio", "/src/build.sh"}
+        fmt.Println(args)
+        buildCommand := exec.Command("docker", args...)
+        //buildCommand.Dir = outDir
+        _, err = buildCommand.Output()
+        if err != nil {
+                fmt.Println(err)
+                fmt.Println(err.(*exec.ExitError).Stderr)
+                w.WriteHeader(400)
+                return
+        }
+
+        fmt.Println(webhook.HeadCommit.Id, "done")
 }
