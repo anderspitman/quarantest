@@ -2,6 +2,7 @@ package main
 
 import (
         "fmt"
+        "log"
         "flag"
         "strings"
 	"net/http"
@@ -31,6 +32,11 @@ type GithubCommit struct {
 
 type GithubUser struct {
         Name string `json:"name"`
+}
+
+type QuarantestConfig struct {
+        BuildScript string `json:"build_script"`
+        DockerImage string `json:"docker_image"`
 }
 
 
@@ -68,9 +74,6 @@ func main() {
                                 fmt.Fprintf(w, "%s", err)
                                 return
                         }
-
-                        fmt.Println(webhook.HeadCommit.Id)
-                        fmt.Println(webhook.Repository.Url)
 
                         go doBuild(w, r, commitDir, webhook)
                 } else {
@@ -156,6 +159,8 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
 
         srcDir := path.Join(commitDir, webhook.HeadCommit.Id, "src")
 
+        log.Println(webhook.HeadCommit.Id, "clone repository")
+
         cloneCommand := exec.Command("git", "clone", webhook.Repository.Url, srcDir)
         _, err = cloneCommand.Output()
         if err != nil {
@@ -166,6 +171,7 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
                 return
         }
 
+        log.Println(webhook.HeadCommit.Id, "checkout version")
 
         args := []string{"-C", srcDir, "checkout", webhook.HeadCommit.Id}
         checkoutCommand := exec.Command("git", args...)
@@ -176,6 +182,31 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
                 w.WriteHeader(400)
                 return
         }
+
+        log.Println(webhook.HeadCommit.Id, "read config")
+
+        quarantestConfigFilePath := path.Join(srcDir, "quarantest.json")
+        quarantestConfigFile, err := ioutil.ReadFile(quarantestConfigFilePath)
+        if err != nil {
+                err = statusUpdater.SetStatus(failureStatus)
+                w.WriteHeader(400)
+                fmt.Fprintf(w, "%s", err)
+                return
+        }
+
+        quarantestConfig := &QuarantestConfig{}
+        err = json.Unmarshal(quarantestConfigFile, &quarantestConfig)
+        if err != nil {
+                err = statusUpdater.SetStatus(failureStatus)
+                w.WriteHeader(400)
+                fmt.Fprintf(w, "%s", err)
+                return
+        }
+
+        dockerImage := quarantestConfig.DockerImage
+        buildScriptPath := "/src/" + quarantestConfig.BuildScript
+
+        log.Println(webhook.HeadCommit.Id, "create build directory")
 
         buildDir := path.Join(commitDir, webhook.HeadCommit.Id, "build")
         mkdirCommand := exec.Command("mkdir", "-p", buildDir)
@@ -188,9 +219,11 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         }
 
 
+        log.Println(webhook.HeadCommit.Id, "run build")
+
         srcMount := fmt.Sprintf("type=bind,source=%s,target=/src", srcDir)
         buildMount := fmt.Sprintf("type=bind,source=%s,target=/build", buildDir)
-        args = []string{"run", "--rm", "-i", "--mount", srcMount, "--mount", buildMount, "bam.iobio", "/src/build.sh"}
+        args = []string{"run", "--rm", "-i", "--mount", srcMount, "--mount", buildMount, dockerImage, buildScriptPath}
         buildCommand := exec.Command("docker", args...)
         //buildCommand.Dir = outDir
         _, err = buildCommand.Output()
@@ -204,5 +237,5 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
 
         err = statusUpdater.SetStatus(successStatus)
 
-        fmt.Println(webhook.HeadCommit.Id, "done")
+        log.Println(webhook.HeadCommit.Id, "done")
 }
