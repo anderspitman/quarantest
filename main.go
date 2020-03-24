@@ -28,7 +28,8 @@ type GithubCommit struct {
 
 func main() {
         fmt.Println("Starting up")
-	port := flag.String("port", "9001", "Port")
+        port := flag.String("port", "9001", "Port")
+        flag.Parse()
 
         cwd, err := os.Getwd()
         if err != nil {
