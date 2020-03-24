@@ -10,6 +10,7 @@ import (
         "os"
         "os/exec"
         "path"
+        //"bytes"
 )
 
 type GithubWebhook struct {
@@ -20,11 +21,18 @@ type GithubWebhook struct {
 
 type GithubRepository struct {
         Url string `json:"url"`
+        Name string `json:"name"`
+        Owner *GithubUser `json:"owner"`
 }
 
 type GithubCommit struct {
         Id string `json:"id"`
 }
+
+type GithubUser struct {
+        Name string `json:"name"`
+}
+
 
 func main() {
         fmt.Println("Starting up")
@@ -115,11 +123,43 @@ func main() {
 
 
 func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *GithubWebhook) {
+
+        statusUpdater := NewGithubStatusUpdater()
+        statusUpdater.Owner = webhook.Repository.Owner.Name
+        statusUpdater.RepoName = webhook.Repository.Name
+        statusUpdater.Sha = webhook.HeadCommit.Id
+
+        targetUrl := fmt.Sprintf("http://%s.quarantest.iobio.io", webhook.HeadCommit.Id)
+
+        pendingStatus := &GithubStatus{
+                State: "pending",
+                TargetUrl: targetUrl,
+                Description: "quarantest build started",
+                Context: "testing/quarantest",
+        }
+
+        failureStatus := &GithubStatus{
+                State: "failure",
+                TargetUrl: targetUrl,
+                Description: "quarantest build failed",
+                Context: "testing/quarantest",
+        }
+
+        successStatus := &GithubStatus{
+                State: "success",
+                TargetUrl: targetUrl,
+                Description: "quarantest build succeeded",
+                Context: "testing/quarantest",
+        }
+
+        err := statusUpdater.SetStatus(pendingStatus)
+
         srcDir := path.Join(commitDir, webhook.HeadCommit.Id, "src")
 
         cloneCommand := exec.Command("git", "clone", webhook.Repository.Url, srcDir)
-        _, err := cloneCommand.Output()
+        _, err = cloneCommand.Output()
         if err != nil {
+                err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err)
                 w.WriteHeader(400)
                 fmt.Fprintf(w, "%s", err)
@@ -127,12 +167,11 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         }
 
 
-        fmt.Println(webhook.Ref)
         args := []string{"-C", srcDir, "checkout", webhook.HeadCommit.Id}
-        fmt.Println(args)
         checkoutCommand := exec.Command("git", args...)
         _, err = checkoutCommand.Output()
         if err != nil {
+                err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err.(*exec.ExitError).Stderr)
                 w.WriteHeader(400)
                 return
@@ -142,6 +181,7 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         mkdirCommand := exec.Command("mkdir", "-p", buildDir)
         _, err = mkdirCommand.Output()
         if err != nil {
+                err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err.(*exec.ExitError).Stderr)
                 w.WriteHeader(400)
                 return
@@ -151,16 +191,18 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         srcMount := fmt.Sprintf("type=bind,source=%s,target=/src", srcDir)
         buildMount := fmt.Sprintf("type=bind,source=%s,target=/build", buildDir)
         args = []string{"run", "--rm", "-i", "--mount", srcMount, "--mount", buildMount, "bam.iobio", "/src/build.sh"}
-        fmt.Println(args)
         buildCommand := exec.Command("docker", args...)
         //buildCommand.Dir = outDir
         _, err = buildCommand.Output()
         if err != nil {
+                err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err)
                 fmt.Println(err.(*exec.ExitError).Stderr)
                 w.WriteHeader(400)
                 return
         }
+
+        err = statusUpdater.SetStatus(successStatus)
 
         fmt.Println(webhook.HeadCommit.Id, "done")
 }
