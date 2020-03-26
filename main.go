@@ -209,8 +209,7 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         log.Println(webhook.HeadCommit.Id, "create build directory")
 
         buildDir := path.Join(commitDir, webhook.HeadCommit.Id, "build")
-        mkdirCommand := exec.Command("mkdir", "-p", buildDir)
-        _, err = mkdirCommand.Output()
+        err = os.MkdirAll(buildDir, os.ModeDir | 0755)
         if err != nil {
                 err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err.(*exec.ExitError).Stderr)
