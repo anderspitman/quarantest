@@ -4,6 +4,7 @@ import (
         "fmt"
         "log"
         "flag"
+        "mime"
         "strings"
 	"net/http"
         "io/ioutil"
@@ -101,6 +102,8 @@ func main() {
 
                                 _, err := os.Stat(filePath)
                                 if r.URL.Path == "/" || os.IsNotExist(err) {
+                                        contentType := mime.TypeByExtension("index.html")
+                                        w.Header().Set("Content-Type", contentType)
                                         indexPath := path.Join(rootDir, "index.html")
                                         file, err := ioutil.ReadFile(indexPath)
                                         if err != nil {
@@ -112,6 +115,12 @@ func main() {
 
                                         w.Write(file)
                                 } else {
+
+                                        contentType := mime.TypeByExtension(path.Ext(filePath))
+                                        if contentType != "" {
+                                                w.Header().Set("Content-Type", contentType)
+                                        }
+
                                         file, err := ioutil.ReadFile(filePath)
                                         if err != nil {
                                                 fmt.Println(err)
