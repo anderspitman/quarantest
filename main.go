@@ -92,7 +92,39 @@ func main() {
                         hostParts := strings.Split(r.Host, ".")
                         sha := hostParts[0]
 
-                        rootDir := path.Join(commitDir, sha, "build")
+                        files, err := ioutil.ReadDir(commitDir)
+                        if err != nil {
+                                fmt.Fprintln(os.Stderr, err)
+                                w.WriteHeader(500)
+                                return
+                        }
+
+                        var matches []string
+                        for _, file := range files {
+                                fmt.Println(file.Name())
+                                if strings.HasPrefix(file.Name(), sha) {
+                                        matches = append(matches, file.Name())
+                                }
+                        }
+
+                        if len(matches) < 1 {
+                                fmt.Fprintln(os.Stderr, err)
+                                w.WriteHeader(400)
+                                w.Write([]byte(fmt.Sprintf("sha '%s' did not match any demos", sha)))
+                                return
+                        }
+
+                        if len(matches) > 1 {
+                                fmt.Fprintln(os.Stderr, err)
+                                w.WriteHeader(400)
+                                w.Write([]byte(fmt.Sprintf("sha '%s' is not specific enough. Try using the full sha", sha)))
+                                return
+                        }
+
+                        fullSha := matches[0]
+
+
+                        rootDir := path.Join(commitDir, fullSha, "build")
                         fmt.Println(rootDir)
 
                         if _, err := os.Stat(rootDir); !os.IsNotExist(err) {
@@ -152,7 +184,8 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         statusUpdater.Sha = webhook.PullRequest.Head.Sha
         statusUpdater.IssueNumber = webhook.PullRequest.Number
 
-        targetUrl := fmt.Sprintf("http://%s.quarantest.iobio.io", webhook.PullRequest.Head.Sha)
+        shortSha := webhook.PullRequest.Head.Sha[:8]
+        targetUrl := fmt.Sprintf("http://%s.quarantest.iobio.io", shortSha)
 
         //pendingStatus := &GithubStatus{
         //        State: "pending",
