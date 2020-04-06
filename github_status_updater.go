@@ -12,6 +12,7 @@ type GithubStatusUpdater struct {
         Owner string
         RepoName string
         Sha string
+        IssueNumber int
         username string
         token string
         httpClient *http.Client
@@ -20,6 +21,10 @@ type GithubStatusUpdater struct {
 type GithubCredentials struct {
         Username string `json:"username"`
         Token string `json:"token"`
+}
+
+type GithubComment struct {
+        Body string `json:"body"`
 }
 
 type GithubStatus struct {
@@ -48,6 +53,35 @@ func NewGithubStatusUpdater() *GithubStatusUpdater {
                 token: githubCreds.Token,
                 httpClient: &http.Client{},
         }
+}
+
+func (c *GithubStatusUpdater) AddComment(comment *GithubComment) error {
+
+        jsonStr, err := json.Marshal(comment)
+        if err != nil {
+                return err
+        }
+
+        endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d/comments", c.Owner, c.RepoName, c.IssueNumber)
+
+        fmt.Println(endpoint)
+
+        req, err := http.NewRequest("POST", endpoint, bytes.NewReader(jsonStr))
+        if err != nil {
+                return err
+        }
+
+        req.Header.Set("Content-Type", "application/json; charset=utf-8")
+        req.SetBasicAuth(c.username, c.token)
+
+        _, err = c.httpClient.Do(req)
+        if err != nil {
+                fmt.Println(err)
+                return err
+        }
+
+        return nil
+
 }
 
 func (c *GithubStatusUpdater) SetStatus(status *GithubStatus) error {

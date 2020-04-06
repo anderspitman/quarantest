@@ -15,13 +15,13 @@ import (
 )
 
 type GithubWebhook struct {
-        Ref string `json:"ref"`
+        PullRequest *GithubPullRequest `json:"pull_request"`
         Repository *GithubRepository `json:"repository"`
-        HeadCommit *GithubCommit `json:"head_commit"`
+        //HeadCommit *GithubCommit `json:"head_commit"`
 }
 
 type GithubRepository struct {
-        Url string `json:"url"`
+        HtmlUrl string `json:"html_url"`
         Name string `json:"name"`
         Owner *GithubUser `json:"owner"`
 }
@@ -31,7 +31,17 @@ type GithubCommit struct {
 }
 
 type GithubUser struct {
-        Name string `json:"name"`
+        Login string `json:"login"`
+}
+
+type GithubPullRequest struct {
+        Head *GithubHead `json:"head"`
+        Number int `json:"number"`
+}
+
+type GithubHead struct {
+        Sha string `json:"sha"`
+        Repo *GithubRepository `json:"repo"`
 }
 
 type QuarantestConfig struct {
@@ -128,67 +138,77 @@ func main() {
 func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *GithubWebhook) {
 
         statusUpdater := NewGithubStatusUpdater()
-        statusUpdater.Owner = webhook.Repository.Owner.Name
+        statusUpdater.Owner = webhook.Repository.Owner.Login
         statusUpdater.RepoName = webhook.Repository.Name
-        statusUpdater.Sha = webhook.HeadCommit.Id
+        statusUpdater.Sha = webhook.PullRequest.Head.Sha
+        statusUpdater.IssueNumber = webhook.PullRequest.Number
 
-        targetUrl := fmt.Sprintf("http://%s.quarantest.iobio.io", webhook.HeadCommit.Id)
+        targetUrl := fmt.Sprintf("http://%s.quarantest.iobio.io", webhook.PullRequest.Head.Sha)
 
-        pendingStatus := &GithubStatus{
-                State: "pending",
-                TargetUrl: targetUrl,
-                Description: "quarantest build started",
-                Context: "testing/quarantest",
+        //pendingStatus := &GithubStatus{
+        //        State: "pending",
+        //        TargetUrl: targetUrl,
+        //        Description: "quarantest build started",
+        //        Context: "testing/quarantest",
+        //}
+
+        //failureStatus := &GithubStatus{
+        //        State: "failure",
+        //        TargetUrl: targetUrl,
+        //        Description: "quarantest build failed",
+        //        Context: "testing/quarantest",
+        //}
+
+        //successStatus := &GithubStatus{
+        //        State: "success",
+        //        TargetUrl: targetUrl,
+        //        Description: "quarantest build succeeded",
+        //        Context: "testing/quarantest",
+        //}
+
+        //pendingComment := &GithubComment{
+        //        Body: "quarantest build started",
+        //}
+
+        successComment := &GithubComment{
+                Body: fmt.Sprintf("quarantest build successful. Demo link at\n%s", targetUrl),
         }
 
-        failureStatus := &GithubStatus{
-                State: "failure",
-                TargetUrl: targetUrl,
-                Description: "quarantest build failed",
-                Context: "testing/quarantest",
-        }
+        //err := statusUpdater.SetStatus(pendingStatus)
+        //err := statusUpdater.AddComment(pendingComment)
 
-        successStatus := &GithubStatus{
-                State: "success",
-                TargetUrl: targetUrl,
-                Description: "quarantest build succeeded",
-                Context: "testing/quarantest",
-        }
+        srcDir := path.Join(commitDir, webhook.PullRequest.Head.Sha, "src")
 
-        err := statusUpdater.SetStatus(pendingStatus)
+        log.Println(webhook.PullRequest.Head.Sha, "clone repository")
 
-        srcDir := path.Join(commitDir, webhook.HeadCommit.Id, "src")
-
-        log.Println(webhook.HeadCommit.Id, "clone repository")
-
-        cloneCommand := exec.Command("git", "clone", webhook.Repository.Url, srcDir)
-        _, err = cloneCommand.Output()
+        cloneCommand := exec.Command("git", "clone", webhook.PullRequest.Head.Repo.HtmlUrl, srcDir)
+        _, err := cloneCommand.Output()
         if err != nil {
-                err = statusUpdater.SetStatus(failureStatus)
+                //err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err)
                 w.WriteHeader(400)
                 fmt.Fprintf(w, "%s", err)
                 return
         }
 
-        log.Println(webhook.HeadCommit.Id, "checkout version")
+        log.Println(webhook.PullRequest.Head.Sha, "checkout version")
 
-        args := []string{"-C", srcDir, "checkout", webhook.HeadCommit.Id}
+        args := []string{"-C", srcDir, "checkout", webhook.PullRequest.Head.Sha}
         checkoutCommand := exec.Command("git", args...)
         _, err = checkoutCommand.Output()
         if err != nil {
-                err = statusUpdater.SetStatus(failureStatus)
+                //err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err.(*exec.ExitError).Stderr)
                 w.WriteHeader(400)
                 return
         }
 
-        log.Println(webhook.HeadCommit.Id, "read config")
+        log.Println(webhook.PullRequest.Head.Sha, "read config")
 
         quarantestConfigFilePath := path.Join(srcDir, "quarantest.json")
         quarantestConfigFile, err := ioutil.ReadFile(quarantestConfigFilePath)
         if err != nil {
-                err = statusUpdater.SetStatus(failureStatus)
+                //err = statusUpdater.SetStatus(failureStatus)
                 w.WriteHeader(400)
                 fmt.Fprintf(w, "%s", err)
                 return
@@ -197,7 +217,7 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         quarantestConfig := &QuarantestConfig{}
         err = json.Unmarshal(quarantestConfigFile, &quarantestConfig)
         if err != nil {
-                err = statusUpdater.SetStatus(failureStatus)
+                //err = statusUpdater.SetStatus(failureStatus)
                 w.WriteHeader(400)
                 fmt.Fprintf(w, "%s", err)
                 return
@@ -206,19 +226,19 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         dockerImage := quarantestConfig.DockerImage
         buildScriptPath := "/src/" + quarantestConfig.BuildScript
 
-        log.Println(webhook.HeadCommit.Id, "create build directory")
+        log.Println(webhook.PullRequest.Head.Sha, "create build directory")
 
-        buildDir := path.Join(commitDir, webhook.HeadCommit.Id, "build")
+        buildDir := path.Join(commitDir, webhook.PullRequest.Head.Sha, "build")
         err = os.MkdirAll(buildDir, os.ModeDir | 0755)
         if err != nil {
-                err = statusUpdater.SetStatus(failureStatus)
+                //err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err.(*exec.ExitError).Stderr)
                 w.WriteHeader(400)
                 return
         }
 
 
-        log.Println(webhook.HeadCommit.Id, "run build")
+        log.Println(webhook.PullRequest.Head.Sha, "run build")
 
         srcMount := fmt.Sprintf("type=bind,source=%s,target=/src", srcDir)
         buildMount := fmt.Sprintf("type=bind,source=%s,target=/build", buildDir)
@@ -227,14 +247,15 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         //buildCommand.Dir = outDir
         _, err = buildCommand.Output()
         if err != nil {
-                err = statusUpdater.SetStatus(failureStatus)
+                //err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err)
                 fmt.Println(err.(*exec.ExitError).Stderr)
                 w.WriteHeader(400)
                 return
         }
 
-        err = statusUpdater.SetStatus(successStatus)
+        //err = statusUpdater.SetStatus(successStatus)
+        err = statusUpdater.AddComment(successComment)
 
-        log.Println(webhook.HeadCommit.Id, "done")
+        log.Println(webhook.PullRequest.Head.Sha, "done")
 }
