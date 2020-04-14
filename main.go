@@ -101,7 +101,6 @@ func main() {
 
                         var matches []string
                         for _, file := range files {
-                                fmt.Println(file.Name())
                                 if strings.HasPrefix(file.Name(), sha) {
                                         matches = append(matches, file.Name())
                                 }
@@ -125,12 +124,10 @@ func main() {
 
 
                         rootDir := path.Join(commitDir, fullSha, "build")
-                        fmt.Println(rootDir)
 
                         if _, err := os.Stat(rootDir); !os.IsNotExist(err) {
                                 filePath := path.Join(rootDir, r.URL.Path)
-                                fmt.Println(r.URL.Path)
-                                fmt.Println(filePath)
+                                log.Println(r.Method + " " + fullSha + r.URL.Path)
 
                                 _, err := os.Stat(filePath)
                                 if r.URL.Path == "/" || os.IsNotExist(err) {
