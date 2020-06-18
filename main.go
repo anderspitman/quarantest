@@ -288,7 +288,8 @@ func doBuild(w http.ResponseWriter, r *http.Request, commitDir string, webhook *
         if err != nil {
                 //err = statusUpdater.SetStatus(failureStatus)
                 fmt.Println(err)
-                fmt.Println(err.(*exec.ExitError).Stderr)
+                fmt.Println(string(err.(*exec.ExitError).Stderr))
+                fmt.Println(args)
                 w.WriteHeader(400)
                 return
         }
